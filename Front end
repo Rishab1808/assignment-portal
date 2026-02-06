@@ -1,0 +1,454 @@
+from flask import Flask, request, jsonify, session, render_template, redirect, url_for
+import mysql.connector
+from flask_mail import Mail, Message
+
+
+app = Flask(__name__)
+from flask_mail import Mail, Message
+
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'pandeyrishab39@gmail.com'
+app.config['MAIL_PASSWORD'] = 'wdiy fbck eplj obbc'   # your 16-digit app password
+app.config['MAIL_DEFAULT_SENDER'] = 'hackathontest66@gmail.com'
+
+mail = Mail(app)
+
+
+
+app.secret_key = "super_secret_key"
+import os
+from werkzeug.utils import secure_filename
+
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+
+@app.route("/upload_assignment", methods=["POST"])
+def upload_assignment():
+    if "user_id" not in session or session["role"] != "student":
+        return redirect("/")
+
+    student_id = session["user_id"]
+    assignment_id = request.form["assignment_id"]
+    file = request.files["file"]
+
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(file_path)
+
+    # Check late submission
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT deadline FROM assignments WHERE assignment_id=%s", (assignment_id,))
+    deadline = cursor.fetchone()["deadline"]
+
+    is_late = False
+    cursor.execute("SELECT NOW() > %s AS late", (deadline,))
+    is_late = cursor.fetchone()["late"]
+
+    # Insert submission
+    cursor.execute("""
+        INSERT INTO submissions (assignment_id, student_id, file_path, is_late)
+        VALUES (%s, %s, %s, %s)
+    """, (assignment_id, student_id, file_path, is_late))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return redirect("/student_portal")
+
+
+# DB
+def get_db_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="Rishab@1808",
+        database="college_portal"
+    )
+
+@app.route("/")
+def home():
+    return render_template("login.html")
+
+# @app.route("/student_portal")
+# def student_portal():
+#     if 'user_id' not in session or session.get('role') != 'student':
+#         return redirect('/')
+#     return render_template("student.html")
+
+
+
+
+@app.route("/student_portal")
+def student_portal():
+    if 'user_id' not in session or session.get('role') != 'student':
+        return redirect('/')
+
+    student_id = session["user_id"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1. Student courses (based on assignments assigned to them)
+    cursor.execute("""
+        SELECT DISTINCT c.course_id, c.course_name
+        FROM courses c
+        JOIN assignments a ON c.course_id = a.course_id
+    """)
+    courses = cursor.fetchall()
+
+    # 2. Upcoming assignments (deadline not passed + not submitted)
+    cursor.execute("""
+        SELECT a.assignment_id, a.title, a.deadline, c.course_name
+        FROM assignments a
+        JOIN courses c ON a.course_id = c.course_id
+        WHERE a.deadline > NOW()
+        AND a.assignment_id NOT IN (
+            SELECT assignment_id FROM submissions WHERE student_id=%s
+        )
+        ORDER BY a.deadline ASC
+    """, (student_id,))
+    upcoming = cursor.fetchall()
+
+    # 3. Overdue assignments (deadline passed + not submitted)
+    cursor.execute("""
+        SELECT a.assignment_id, a.title, a.deadline, c.course_name
+        FROM assignments a
+        JOIN courses c ON a.course_id = c.course_id
+        WHERE a.deadline < NOW()
+        AND a.assignment_id NOT IN (
+            SELECT assignment_id FROM submissions WHERE student_id=%s
+        )
+        ORDER BY a.deadline ASC
+    """, (student_id,))
+    overdue = cursor.fetchall()
+
+    # 4. Submission History
+    cursor.execute("""
+        SELECT s.submission_id, s.submitted_at, s.is_late, s.score,
+               a.title, a.max_score, c.course_name
+        FROM submissions s
+        JOIN assignments a ON s.assignment_id = a.assignment_id
+        JOIN courses c ON a.course_id = c.course_id
+        WHERE s.student_id = %s
+        ORDER BY s.submitted_at DESC
+    """, (student_id,))
+    history = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return render_template(
+        "student.html",
+        courses=courses,
+        upcoming=upcoming,
+        overdue=overdue,
+        history=history
+    )
+
+
+
+
+@app.route("/professor_portal")
+def professor_portal():
+    if 'user_id' not in session or session.get('role') != 'professor':
+        return redirect('/')
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM courses WHERE professor_id = %s", (session["user_id"],))
+    courses = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return render_template("professor.html", courses=courses)
+
+
+
+
+
+# -------------------------
+# LOGIN STEP 1
+# -------------------------
+@app.route("/login-action", methods=["POST"])
+def login_action():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE email=%s AND password_hash=%s", (email, password))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not user:
+        return jsonify({"status": "fail"}), 401
+
+    # Save email temporarily for OTP step
+    session["pending_email"] = email
+
+    print(f"OTP for {email}: 1234")
+
+    return jsonify({"status": "otp_required"})
+
+
+
+
+
+
+
+
+
+# -------------------------
+# LOGIN STEP 2 — OTP VERIFY
+# -------------------------
+@app.route("/verify-otp-action", methods=["POST"])
+def verify_otp():
+    data = request.json
+    otp = data.get("otp")
+    email = session.get("pending_email")
+
+    if otp != "1234" or not email:
+        return jsonify({"success": False})
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    session["user_id"] = user["user_id"]
+    session["role"] = user["role"]
+    session.pop("pending_email", None)
+
+    redirect_url = "/student_portal" if user["role"] == "student" else "/professor_portal"
+
+    return jsonify({"success": True, "redirect": redirect_url})
+
+# -------------------------
+# CREATE ASSIGNMENT
+# -------------------------
+@app.route("/create-assignment", methods=["POST"])
+def create_assignment():
+    if "user_id" not in session or session["role"] != "professor":
+        return redirect("/")
+
+    title = request.form["title"]
+    deadline = request.form["deadline"]
+    course_id = request.form.get("course_id")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO assignments (course_id, title, deadline) VALUES (%s, %s, %s)",
+                   (course_id, title, deadline))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return redirect("/professor_portal")
+
+
+@app.route('/logout')
+def logout():
+    session.clear()  # Wipes the session data (user_id, role)
+    return redirect(url_for('home'))  # Sends them back to Login page
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+    
+
+
+
+
+
+
+
+
+
+# from flask import Flask, request, jsonify, session, render_template, redirect, url_for
+# import mysql.connector
+# from flask_mail import Mail, Message
+
+# app = Flask(__name__)
+
+# # -------------------------
+# # EMAIL CONFIG
+# # -------------------------
+# app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+# app.config['MAIL_PORT'] = 587
+# app.config['MAIL_USE_TLS'] = True
+# app.config['MAIL_USERNAME'] = 'pandeyrishab39@gmail.com'
+# app.config['MAIL_PASSWORD'] = 'wdiy fbck eplj obbc'
+# app.config['MAIL_DEFAULT_SENDER'] = 'hackathontest66@gmail.com'
+
+# mail = Mail(app)
+# app.secret_key = "super_secret_key"
+
+
+# # -------------------------
+# # DATABASE
+# # -------------------------
+# def get_db_connection():
+#     return mysql.connector.connect(
+#         host="localhost",
+#         user="root",
+#         password="Rishab@1808",
+#         database="college_portal"
+#     )
+
+
+# # -------------------------
+# # ROUTES
+# # -------------------------
+
+# @app.route("/")
+# def home():
+#     return render_template("login.html")
+
+# @app.route("/student_portal")
+# def student_portal():
+#     if "user_id" not in session or session.get("role") != "student":
+#         return redirect("/")
+#     return render_template("student.html")
+
+# @app.route("/professor_portal")
+# def professor_portal():
+#     if "user_id" not in session or session.get("role") != "professor":
+#         return redirect("/")
+#     return render_template("professor.html")
+
+
+# # -------------------------
+# # LOGIN STEP 1
+# # -------------------------
+# @app.route("/login-action", methods=["POST"])
+# def login_action():
+#     data = request.json
+#     email = data.get("email")
+#     password = data.get("password")
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     cursor.execute("SELECT * FROM users WHERE email=%s AND password_hash=%s", (email, password))
+#     user = cursor.fetchone()
+#     conn.close()
+
+#     if not user:
+#         return jsonify({"status": "fail"}), 401
+
+#     session["pending_email"] = email
+
+#     print("\nDEBUG OTP FOR LOGIN =", "1234\n")  # ← DEBUGGING
+
+#     return jsonify({"status": "otp_required"})
+
+
+# # -------------------------
+# # LOGIN STEP 2 — VERIFY OTP (ALWAYS 1234)
+# # -------------------------
+# @app.route("/verify-otp-action", methods=["POST"])
+# def verify_otp():
+#     data = request.json
+#     otp = data.get("otp")
+#     email = session.get("pending_email")
+
+#     if otp != "1234" or not email:
+#         return jsonify({"success": False})
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+#     user = cursor.fetchone()
+#     conn.close()
+
+#     session["user_id"] = user["user_id"]
+#     session["role"] = user["role"]
+#     session.pop("pending_email", None)
+
+#     redirect_url = "/student_portal" if user["role"] == "student" else "/professor_portal"
+
+#     return jsonify({"success": True, "redirect": redirect_url})
+
+
+# # -------------------------
+# # PROVIDE CLASS LIST FOR PROFESSOR PAGE
+# # -------------------------
+# @app.route("/get-classes")
+# def get_classes():
+#     if "user_id" not in session or session["role"] != "professor":
+#         return jsonify([])
+
+#     prof_id = session["user_id"]
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     cursor.execute("SELECT * FROM courses WHERE professor_id = %s", (prof_id,))
+#     classes = cursor.fetchall()
+#     conn.close()
+
+#     return jsonify(classes)
+
+
+# # -------------------------
+# # CREATE ASSIGNMENT
+# # -------------------------
+# @app.route("/create-assignment", methods=["POST"])
+# def create_assignment():
+#     if "user_id" not in session or session["role"] != "professor":
+#         return redirect("/")
+
+#     title = request.form["title"]
+#     deadline = request.form["deadline"]
+#     course_id = request.form.get("course_id")
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute(
+#         "INSERT INTO assignments (course_id, title, deadline) VALUES (%s, %s, %s)",
+#         (course_id, title, deadline)
+#     )
+#     conn.commit()
+#     conn.close()
+
+#     return redirect("/professor_portal")
+
+
+# # -------------------------
+# # FETCH ASSIGNMENTS FOR STUDENT PORTAL
+# # -------------------------
+# @app.route("/student-assignments")
+# def student_assignments():
+#     if "user_id" not in session or session["role"] != "student":
+#         return jsonify([])
+
+#     student_id = session["user_id"]
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor(dictionary=True)
+
+#     cursor.execute("""
+#         SELECT assignments.assignment_id, assignments.title, assignments.deadline, courses.course_name
+#         FROM assignments
+#         JOIN enrollments ON assignments.course_id = enrollments.course_id
+#         JOIN courses ON courses.course_id = assignments.course_id
+#         WHERE enrollments.student_id = %s
+#     """, (student_id,))
+
+#     data = cursor.fetchall()
+#     conn.close()
+
+#     return jsonify(data)
+
+
+# if __name__ == "__main__":
+#     app.run(debug=True)
