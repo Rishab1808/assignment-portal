@@ -1,0 +1,64 @@
+DROP DATABASE IF EXISTS college_portal;
+CREATE DATABASE college_portal;
+USE college_portal;
+
+-- 1. Create Tables
+CREATE TABLE users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100) NOT NULL,
+    role ENUM('student', 'professor') NOT NULL
+);
+
+CREATE TABLE courses (
+    course_id INT AUTO_INCREMENT PRIMARY KEY,
+    course_name VARCHAR(100) NOT NULL,
+    professor_id INT,
+    FOREIGN KEY (professor_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE assignments (
+    assignment_id INT AUTO_INCREMENT PRIMARY KEY,
+    course_id INT NOT NULL, 
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    deadline TIMESTAMP NOT NULL,
+    max_score INT DEFAULT 100,
+    FOREIGN KEY (course_id) REFERENCES courses(course_id)
+);
+
+CREATE TABLE submissions (
+    submission_id INT AUTO_INCREMENT PRIMARY KEY,
+    assignment_id INT NOT NULL,
+    student_id INT NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_late BOOLEAN DEFAULT FALSE,
+    score INT,
+    FOREIGN KEY (assignment_id) REFERENCES assignments(assignment_id),
+    FOREIGN KEY (student_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE otp_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255),
+    otp_code VARCHAR(4),
+    expires_at TIMESTAMP,
+    is_used BOOLEAN DEFAULT FALSE
+);
+
+-- 2. Insert Users (FIXED SPELLING: gmail.com)
+INSERT INTO users (email, password_hash, full_name, role) VALUES 
+('student@college.edu', 'pass123', 'Rahul Samanta', 'student'),
+('prof@college.edu', 'pass123', 'Dr. Sharma', 'professor');
+
+-- 3. Insert Courses (Using the smart lookup to link to Dr. Sharma)
+INSERT INTO courses (course_name, professor_id) 
+SELECT 'CS101 - Data Structures', user_id FROM users WHERE email='prof@college.edu';
+
+INSERT INTO courses (course_name, professor_id) 
+SELECT 'CS102 - Algorithms', user_id FROM users WHERE email='prof@college.edu';
+
+INSERT INTO courses (course_name, professor_id) 
+SELECT 'CS103 - DBMS', user_id FROM users WHERE email='prof@college.edu';
