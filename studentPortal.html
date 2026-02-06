@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Student Portal</title>
+    <style>
+        /* (Keep your existing CSS variables from the previous step) */
+        :root {
+            --primary: #2563eb;
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-dark: #1f2937;
+            --success: #10b981;
+            --danger: #ef4444;
+            --border: #e5e7eb;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); margin: 0; color: var(--text-dark); }
+        .navbar { background: var(--card-bg); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; display: flex; flex-direction: column; gap: 2rem; }
+        
+        .card { background: var(--card-bg); border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card-header { margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        
+        /* Assignment Item Style */
+        .assignment-item { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        .assign-details h4 { margin: 0 0 5px 0; }
+        .upload-form { display: flex; align-items: center; gap: 10px; }
+        .btn-upload { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+
+        /* History Table */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left; }
+        th { background: #f9fafb; color: #666; }
+        .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; }
+        .late { background: #fee2e2; color: var(--danger); }
+        .ontime { background: #d1fae5; color: var(--success); }
+    </style>
+</head>
+<body>
+
+    <div class="navbar">
+        <h2 style="color:var(--primary);">🎓 Student Portal</h2>
+        <div>Logged in as: <strong>Student</strong></div>
+    </div>
+
+    <div class="container">
+
+        <div class="card">
+            <div class="card-header"><h3>📚 My Courses</h3></div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                {% for course in courses %}
+                    <div style="background:#e0f2fe; color:#0369a1; padding: 8px 15px; border-radius: 20px; font-weight: 600;">
+                        {{ course.course_code }}: {{ course.course_name }}
+                    </div>
+                {% else %}
+                    <p>No active enrollments.</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card" style="border-left: 5px solid #2563eb;">
+            <div class="card-header"><h3 style="color: #2563eb;">📅 Upcoming Assignments</h3></div>
+            
+            {% for work in upcoming %}
+            <div class="assignment-item">
+                <div class="assign-details">
+                    <h4>{{ work.title }}</h4>
+                    <p style="font-size:0.9rem; color:#666;">{{ work.course_name }}</p>
+                    <p style="color: #059669; font-weight:bold; font-size:0.9rem;">Due: {{ work.deadline }}</p>
+                </div>
+                
+                <form class="upload-form" action="/upload_assignment" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="assignment_id" value="{{ work.assignment_id }}">
+                    <input type="file" name="file" accept=".pdf,.docx,.jpg" required>
+                    <button type="submit" class="btn-upload">Submit</button>
+                </form>
+            </div>
+            {% else %}
+                <p style="color:#666; text-align:center;">No pending work. You are all caught up! 🎉</p>
+            {% endfor %}
+        </div>
+
+        <div class="card" style="border-left: 5px solid #ef4444; background-color: #fff1f2;">
+            <div class="card-header"><h3 style="color: #ef4444;">⚠️ Missed / Overdue</h3></div>
+            
+            {% for work in overdue %}
+            <div class="assignment-item" style="background: white; border-color: #fecaca;">
+                <div class="assign-details">
+                    <h4 style="color:#991b1b;">{{ work.title }}</h4>
+                    <p style="font-size:0.9rem; color:#666;">{{ work.course_name }}</p>
+                    <p style="color: #dc2626; font-weight:bold; font-size:0.9rem;">Deadline Passed: {{ work.deadline }}</p>
+                </div>
+                
+                <form class="upload-form" action="/upload_assignment" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="assignment_id" value="{{ work.assignment_id }}">
+                    <input type="file" name="file" accept=".pdf,.docx,.jpg" required>
+                    <button type="submit" class="btn-upload" style="background-color:#dc2626;">Submit Late</button>
+                </form>
+            </div>
+            {% else %}
+                <p style="color:#666; text-align:center;">No overdue assignments.</p>
+            {% endfor %}
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>✅ Submission History</h3></div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Subject</th>
+                        <th>Assignment</th>
+                        <th>Submitted At</th>
+                        <th>Status</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in history %}
+                    <tr>
+                        <td>{{ sub.course_name }}</td>
+                        <td>{{ sub.title }}</td>
+                        <td>{{ sub.submitted_at }}</td>
+                        <td>
+                            {% if sub.is_late %} <span class="badge late">Late</span>
+                            {% else %} <span class="badge ontime">On Time</span> {% endif %}
+                        </td>
+                        <td>
+                            {% if sub.score is not none %} <strong>{{ sub.score }} / {{ sub.max_score }}</strong>
+                            {% else %} <span style="color:#999;">Grading...</span> {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                        <tr><td colspan="5" style="text-align:center;">No history found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</body>
+</html>
