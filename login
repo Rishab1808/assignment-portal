@@ -223,4 +223,3 @@ const otpError = () => document.getElementById("otpError");
 
 </body>
 </html>
-
