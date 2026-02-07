@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Grading Dashboard</title>
+    <style>
+        /* CSS Styles */
+        :root { --primary: #2563eb; --bg: #f3f4f6; --text: #1f2937; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 2rem; }
+        
+        .header { background: white; padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .back-btn { text-decoration: none; color: #666; font-weight: bold; }
+        
+        table { width: 100%; background: white; border-collapse: collapse; border-radius: 12px; overflow: hidden; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #2563eb; color: white; }
+        
+        .badge { padding: 5px 10px; border-radius: 15px; font-size: 0.8rem; font-weight: bold; }
+        .late { background: #fee2e2; color: #ef4444; }
+        .ontime { background: #d1fae5; color: #10b981; }
+        
+        button { background: #2563eb; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <a href="/professor_portal" class="back-btn">← Back to Dashboard</a>
+            <h2 style="margin: 10px 0 0 0;">📝 Grading: {{ assignment.title }}</h2>
+            <small style="color: #666;">Assignment ID: {{ assignment.assignment_id }}</small>
+        </div>
+        <div>
+            <strong>Max Score: {{ assignment.max_score }}</strong>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Student Name</th>
+                <th>Submitted File</th>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Grade</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sub in submissions %}
+            <tr>
+                <td>
+                    <strong>{{ sub.full_name }}</strong><br>
+                    <span style="font-size:0.85rem; color:#666;">{{ sub.email }}</span>
+                </td>
+                <td>
+                    <a href="/download/{{ sub.file_path }}" target="_blank" style="color:#2563eb; font-weight:bold;">
+                        Download {{ sub.file_path }}
+                    </a>
+                </td>
+                <td>{{ sub.submitted_at }}</td>
+                <td>
+                    {% if sub.is_late %}
+                        <span class="badge late">Late</span>
+                    {% else %}
+                        <span class="badge ontime">On Time</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form action="/update_grade" method="POST" style="display:flex; gap:10px;">
+                        <input type="hidden" name="submission_id" value="{{ sub.submission_id }}">
+                        <input type="hidden" name="assignment_id" value="{{ assignment.assignment_id }}">
+                        
+                        <input type="number" name="score" value="{{ sub.score if sub.score is not none else '' }}" max="{{ assignment.max_score }}" placeholder="0" style="width:60px;">
+                        <button type="submit">Save</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" style="text-align:center; padding: 2rem; color: #888;">
+                    <strong>No submissions found for Assignment ID {{ assignment.assignment_id }}</strong><br>
+                    (Check if the student uploaded to the correct assignment)
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
